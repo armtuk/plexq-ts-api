@@ -5,8 +5,8 @@ export {
 } from "./wsapi/Api";
 
 export type {
-    APIValidator,
-    APIRequest,
+  APIValidator,
+  APIRequest,
   APIContentType,
   APIDefinition,
   APISuccessResponse
