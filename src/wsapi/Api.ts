@@ -1,4 +1,4 @@
-import { AnyZodObject, ZodArray, ZodError } from "zod";
+import {ZodArray, ZodError, ZodObject} from "zod";
 
 export class API {
   static debug = false
@@ -12,7 +12,7 @@ export type JWTAuthParams = {
   jwtToken?: string
 }
 
-export type APIValidator = AnyZodObject | ZodArray<AnyZodObject>
+export type APIValidator = ZodObject | ZodArray<ZodObject>
 export enum BodyMethod { post = "POST", put = "PUT", delete = "DELETE", get = "GET", patch = "PATCH" }
 
 export type APISettings = {
@@ -27,7 +27,8 @@ export interface APIRequest {
   },
   headers: Headers,
   contentType: string
-  validator?: APIValidator | undefined,
+  requestValidator?: APIValidator | undefined,
+  responseValidator?: APIValidator | undefined,
   settings: APISettings
 }
 
@@ -62,7 +63,9 @@ export interface APIDefinition {
   provider: APIProvider
   location: string
   method: BodyMethod
-  validator?: APIValidator
+  responseValidator?: APIValidator
+  requestValidator?: APIValidator
+  secureContent?: boolean
 }
 
 
@@ -89,15 +92,18 @@ export type  APIResponse<T> = APISuccessResponse<T> | APIFailedResponse<T>;
 
 type QueryParameters = Record<string, string>
 
-type APICall = (provider: APIProvider, location: string, validator?: APIValidator, secure?: boolean) => APIDefinition
+type GetAPICall = (provider: APIProvider, location: string, responseValidator?: APIValidator, secure?: boolean) => APIDefinition
+type OtherAPICall = (provider: APIProvider, location: string, responseValidator?: APIValidator, requestValidator?: APIValidator, secure?: boolean) => APIDefinition
+
+type APICall = GetAPICall | OtherAPICall
 
 export const withValidator = (def: APIDefinition, validator: APIValidator) => ({...def, validator: validator} as APIValidatedDefinition)
 
-export const Get: APICall = (provider: APIProvider, location: string, validator?: APIValidator, secure?: boolean) => ({provider, location, method: BodyMethod.get, validator, secureContent: !!secure} as APIDefinition)
-export const Put: APICall = (provider: APIProvider, location: string, validator?: APIValidator, secure?: boolean) => ({provider, location, method: BodyMethod.put, validator, secureContent: !!secure} as APIDefinition)
-export const Post: APICall = (provider: APIProvider, location: string, validator?: APIValidator, secure?: boolean) => ({provider, location, method: BodyMethod.post, validator, secureContent: !!secure} as APIDefinition)
-export const Delete: APICall = (provider: APIProvider, location: string, validator?: APIValidator, secure?: boolean) => ({provider, location, method: BodyMethod.delete, validator, secureContent: !!secure} as APIDefinition)
-export const Patch: APICall = (provider: APIProvider, location: string, validator?: APIValidator, secure?: boolean) => ({provider, location, method: BodyMethod.patch, validator, secureContent: !!secure} as APIDefinition)
+export const Get: APICall = (provider: APIProvider, location: string, responseValidator?: APIValidator, secure?: boolean) => ({provider, location, method: BodyMethod.get, responseValidator, secureContent: !!secure} as APIDefinition)
+export const Put: APICall = (provider: APIProvider, location: string, responseValidator?: APIValidator, requestValidator?: APIValidator, secure?: boolean) => ({provider, location, method: BodyMethod.put, responseValidator, requestValidator, secureContent: !!secure} as APIDefinition)
+export const Post: APICall = (provider: APIProvider, location: string, responseValidator?: APIValidator, requestValidator?: APIValidator, secure?: boolean) => ({provider, location, method: BodyMethod.post, responseValidator, requestValidator, secureContent: !!secure} as APIDefinition)
+export const Delete: APICall = (provider: APIProvider, location: string, responseValidator?: APIValidator, requestValidator?: APIValidator, secure?: boolean) => ({provider, location, method: BodyMethod.delete, responseValidator, requestValidator, secureContent: !!secure} as APIDefinition)
+export const Patch: APICall = (provider: APIProvider, location: string, responseValidator?: APIValidator, requestValidator?: APIValidator, secure?: boolean) => ({provider, location, method: BodyMethod.patch, responseValidator, requestValidator, secureContent: !!secure} as APIDefinition)
 
 export const makeUrlParams = (data: QueryParameters) => Object.keys(data).reduce((acc: string, e: string) =>
     acc + "&" + encodeURIComponent(e) + "=" + encodeURIComponent(data[e] as string)
@@ -141,9 +147,9 @@ export function jsonEndpoint<T>(req: APIRequest): Promise<APISuccessResponse<T>>
           // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
           const dataBlock = result.json || result.data || result.Data || result
 
-          if (req.validator) {
+          if (req.responseValidator) {
             try {
-              return apiSuccess<T>(req.init.method, req.url, req.validator.parse(dataBlock) as T, resp.headers, resp.status)
+              return apiSuccess<T>(req.init.method, req.url, req.responseValidator.parse(dataBlock) as T, resp.headers, resp.status)
             }
             catch (err) {
                if (err instanceof ZodError) {
@@ -326,7 +332,8 @@ export const api = <T>(apiDef: APIDefinition, data?: any, contentType?: APIConte
   return jsonEndpoint<T>({
     url: url,
     init: mkInit(contentType),
-    validator: apiDef.validator,
+    requestValidator: apiDef.requestValidator,
+    responseValidator: apiDef.responseValidator,
     headers: apiDef.provider.authHeaders(),
     contentType: contentType || "application/json",
     settings: apiDef.provider.settings
